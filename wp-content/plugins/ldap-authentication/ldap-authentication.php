@@ -13,6 +13,52 @@ if (is_admin()) {
     require_once LG_LDAP_AUTH_PLUGIN_DIR . 'admin/settings-page.php';
 }
 
+add_action('rest_api_init', function () {
+    register_rest_route('jwt-auth/v1', '/token', [
+        'methods' => 'POST',
+        'callback' => 'lg_ldap_login_jwt_style',
+        'permission_callback' => '__return_true',
+    ]);
+});
+function lg_ldap_login_jwt_style(WP_REST_Request $request) {
+    $username = $request->get_param('username');
+    $password = $request->get_param('password');
+
+    if (empty($username) || empty($password)) {
+        return new WP_Error('[jwt_auth] empty_fields', 'Username and password are required.', ['status' => 400]);
+    }
+
+    $auth_result = lg_ldap_authenticate($username, $password);
+
+    if (is_wp_error($auth_result)) {
+        return new WP_Error('[jwt_auth] ldap_error', '❌ LDAP Error: ' . $auth_result->get_error_message(), ['status' => 403]);
+    }
+
+    // Find or create WordPress user
+    $user = get_user_by('login', $username);
+    if (!$user) {
+        $user_id = wp_create_user($username, wp_generate_password(), $username . '@example.com');
+        if (is_wp_error($user_id)) {
+            return new WP_Error('[jwt_auth] user_create_error', '❌ Could not create WordPress user.', ['status' => 500]);
+        }
+        $user = get_user_by('id', $user_id);
+    }
+
+    // Force login
+    wp_set_current_user($user->ID);
+    wp_set_auth_cookie($user->ID, true);
+    do_action('wp_login', $user->user_login, $user);
+
+    // Respond like JWT plugin (but no token)
+    return [
+        'token' => 'fake-jwt-token-for-now',
+        'user_email' => $user->user_email,
+        'user_nicename' => $user->user_nicename,
+        'user_display_name' => $user->display_name,
+    ];
+}
+
+
 // LDAP Authentication function
 function lg_ldap_authenticate($username, $password) {
     $options = get_option('lg_ldap_auth_settings');
@@ -109,50 +155,6 @@ add_action('wp_ajax_lg_ldap_test_connection', function () {
     ldap_unbind($conn);
     wp_die();
 });
-
-// add_filter('authenticate', 'lg_ldap_auth_hook', 10, 3);
-
-// function lg_ldap_auth_hook($user, $username, $password) {
-//     if (!empty($username) && !empty($password)) {
-//         // Strip domain if present (e.g., user@domain.local)
-//         if (strpos($username, '@') !== false) {
-//             $username = explode('@', $username)[0];
-//         }
-
-//         // Prevent LDAP login with system accounts like krbtgt
-//         if (strtolower($username) === 'krbtgt') {
-//             return new WP_Error('[jwt_auth] ldap_error', '❌ Cannot login as internal system user.');
-//         }
-
-//         // First try WordPress auth
-//         $user = wp_authenticate_username_password(null, $username, $password);
-//         if (!is_wp_error($user)) return $user;
-
-//         // Try LDAP auth
-//         $result = lg_ldap_authenticate($username, $password);
-
-//         if (is_wp_error($result)) {
-//             return new WP_Error('[jwt_auth] ldap_error', '❌ LDAP Error...: ' . $result->get_error_message());
-//         }
-
-//         // LDAP success: create or get WordPress user
-//         $wp_user = get_user_by('login', $username);
-//         if (!$wp_user) {
-//             $random_pass = wp_generate_password();
-//             $user_id = wp_create_user($username, $random_pass, $username . '@example.com');
-
-//             if (is_wp_error($user_id)) {
-//                 return new WP_Error('[jwt_auth] wp_create_error', '❌ Failed to create WordPress user.');
-//             }
-
-//             $wp_user = get_user_by('id', $user_id);
-//         }
-
-//         return $wp_user;
-//     }
-
-//     return $user;
-// }
 
 
 add_filter('login_errors', 'lg_show_login_errors');

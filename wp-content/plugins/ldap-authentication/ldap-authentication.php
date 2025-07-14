@@ -110,55 +110,77 @@ add_action('wp_ajax_lg_ldap_test_connection', function () {
     wp_die();
 });
 
-add_filter('authenticate', 'lg_ldap_auth_hook', 10, 3);
+// add_filter('authenticate', 'lg_ldap_auth_hook', 10, 3);
 
-function lg_ldap_auth_hook($user, $username, $password) {
-    if (!empty($username) && !empty($password)) {
-        // Strip domain if present (e.g., user@domain.local)
-        if (strpos($username, '@') !== false) {
-            $username = explode('@', $username)[0];
-        }
+// function lg_ldap_auth_hook($user, $username, $password) {
+//     if (!empty($username) && !empty($password)) {
+//         // Strip domain if present (e.g., user@domain.local)
+//         if (strpos($username, '@') !== false) {
+//             $username = explode('@', $username)[0];
+//         }
 
-        // Prevent LDAP login with system accounts like krbtgt
-        if (strtolower($username) === 'krbtgt') {
-            return new WP_Error('[jwt_auth] ldap_error', '❌ Cannot login as internal system user.');
-        }
+//         // Prevent LDAP login with system accounts like krbtgt
+//         if (strtolower($username) === 'krbtgt') {
+//             return new WP_Error('[jwt_auth] ldap_error', '❌ Cannot login as internal system user.');
+//         }
 
-        // First try WordPress auth
-        $user = wp_authenticate_username_password(null, $username, $password);
-        if (!is_wp_error($user)) return $user;
+//         // First try WordPress auth
+//         $user = wp_authenticate_username_password(null, $username, $password);
+//         if (!is_wp_error($user)) return $user;
 
-        // Try LDAP auth
-        $result = lg_ldap_authenticate($username, $password);
+//         // Try LDAP auth
+//         $result = lg_ldap_authenticate($username, $password);
 
-        if (is_wp_error($result)) {
-            return new WP_Error('[jwt_auth] ldap_error', '❌ LDAP Error...: ' . $result->get_error_message());
-        }
+//         if (is_wp_error($result)) {
+//             return new WP_Error('[jwt_auth] ldap_error', '❌ LDAP Error...: ' . $result->get_error_message());
+//         }
 
-        // LDAP success: create or get WordPress user
-        $wp_user = get_user_by('login', $username);
-        if (!$wp_user) {
-            $random_pass = wp_generate_password();
-            $user_id = wp_create_user($username, $random_pass, $username . '@example.com');
+//         // LDAP success: create or get WordPress user
+//         $wp_user = get_user_by('login', $username);
+//         if (!$wp_user) {
+//             $random_pass = wp_generate_password();
+//             $user_id = wp_create_user($username, $random_pass, $username . '@example.com');
 
-            if (is_wp_error($user_id)) {
-                return new WP_Error('[jwt_auth] wp_create_error', '❌ Failed to create WordPress user.');
-            }
+//             if (is_wp_error($user_id)) {
+//                 return new WP_Error('[jwt_auth] wp_create_error', '❌ Failed to create WordPress user.');
+//             }
 
-            $wp_user = get_user_by('id', $user_id);
-        }
+//             $wp_user = get_user_by('id', $user_id);
+//         }
 
-        return $wp_user;
-    }
+//         return $wp_user;
+//     }
 
-    return $user;
-}
+//     return $user;
+// }
 
 
 add_filter('login_errors', 'lg_show_login_errors');
 function lg_show_login_errors($error) {
     return $error; // Return raw error messages
 }
+
+add_filter('authenticate', 'lg_force_ldap_only_auth', 10, 3);
+function lg_force_ldap_only_auth($user, $username, $password) {
+    if (empty($username) || empty($password)) {
+        return new WP_Error('ldap_empty_fields', 'Username and password required.');
+    }
+
+    $result = lg_ldap_authenticate($username, $password);
+
+    if (is_wp_error($result)) {
+        return new WP_Error('[jwt_auth] ldap_error', '❌ LDAP Error 2...: ' . $result->get_error_message(), ['status' => 403]);
+    }
+
+    // If user exists, return it. If not, create it.
+    $wp_user = get_user_by('login', $username);
+    if (!$wp_user) {
+        $wp_user = wp_create_user($username, wp_generate_password(), $username . '@example.com');
+    }
+
+    return $wp_user;
+}
+
 
 add_action('wp_ajax_lg_ldap_import_users', 'lg_ldap_import_users_callback');
 function lg_ldap_import_users_callback() {

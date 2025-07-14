@@ -1,6 +1,6 @@
 <?php
  /**
- * Plugin Name: LDAP Authentication
+ * Plugin Name: LDAP Login Plugin
  * Description: Authenticate WordPress users via Microsoft Active Directory and sync user data.
  * Version: 1.0.0
  * Author: Lorenzo Galassi

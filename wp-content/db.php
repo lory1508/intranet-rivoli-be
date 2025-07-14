@@ -1,0 +1,1 @@
+/opt/lampp/htdocs/intranet/wp-content/plugins/query-monitor/wp-content/db.php
